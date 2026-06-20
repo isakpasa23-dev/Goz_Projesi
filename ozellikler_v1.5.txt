@@ -1,0 +1,47 @@
+====================================================
+          GÖZ PROJESİ V1.5 ÖZELLİKLERİ
+====================================================
+
+1. DUYGUSAL DURUMLAR (Emotional States)
+   - 4 Temel duygu durumu içerir: Normal, Kısma (Yorgun/Şüpheci), Şaşkın ve Kızgın.
+   - Bu durumlar kendi aralarında olasılıklarla (ağırlıklı havuz sistemiyle) yumuşak geçişler yapar.
+   - Her duygunun kendine has hızları, tepkileri ve göz aralık sınırları vardır.
+
+2. ASİMETRİK GÖZ KIRPMA (Asymmetric Blinking)
+   - Gözler robot gibi tam olarak aynı anda kapanıp açılmaz. 
+   - 3-8 milisaniye arasında rastgele bir gecikmeyle (sol veya sağ göz önce kapanacak şekilde) asimetrik kırpılırlar.
+
+3. DİNAMİK KIRPMA HIZI VE YUMUŞAKLIK (Quadratic Ease-Out)
+   - Gözün kapanma süresi (50-150ms) ile açılma süresi arasında tam olarak 2 katı (2x) fark vardır. 
+   - Açılma animasyonu her zaman kapanmadan daha yavaş gerçekleşir. 
+   - Kırpma animasyonu bitişinde kas gevşemesi hissini vermek için yumuşak bir formül uygulanır.
+
+4. BAĞIMSIZ GÖZ HIZI (Independent Velocity)
+   - İki gözün bir hedefe ulaşma hızları (Fren Katsayısı) birbirinden bağımsız hesaplanır. 
+   - Şaşkınken çok hızlı ve panik şeklinde, yorgunken çok yavaş ve uyuşuk hareket ederler.
+
+5. BAKTIĞI YÖNE GÖRE ESNEME (Perspective Stretch)
+   - Gözler sağa veya sola fazla baktığında perspektif etkisi yaratılır.
+   - Baktığı yöndeki göz biraz büyür ve genişlerken, diğer göz hafifçe küçülür/büzülür.
+
+6. HAREKET SIRASINDA KAVİS ÇİZME (Arc Movement)
+   - Gözler ekranda bir noktadan diğerine giderken düz bir çizgi üzerinde kaymaz.
+   - Doğal bir görünüm için hafifçe yukarı doğru bir yay (kavis) çizerek hareket eder.
+
+7. YARIM KIRPMA VE ÇOKLU KIRPMA KRİZLERİ (Half & Multi-blink)
+   - %25 ihtimalle gözler tam kapanmak yerine sadece yarıya kadar (kısık) kapanıp açılır. 
+   - Ara sıra peş peşe 3-8 kez çok hızlı şekilde çoklu göz kırpma (multi-blink) atakları geçirir.
+
+8. MİKRO SEĞİRMELER VE TİKLER (Saccade & Twitch)
+   - Göz tamamen sabit bir hedefe bakarken donup kalmaz. 1-2 piksellik oynamalarla gerçek insan gözündeki mikro titreşimleri ("saccade") yapar. 
+   - Kızgın durumdayken %1.5 ihtimalle tek bir gözünde seğirme (twitch) meydana gelir.
+
+9. ŞEKİL ASİMETRİSİ
+   - Gözler şekillerini belirlerken birbirlerinin birebir kopyası olmazlar. 
+   - Dikeyde maksimum 3, yatayda maksimum 3 piksel fark olacak şekilde birbirinden hafifçe farklı boyutlarda hedefler seçerler.
+
+10. AÇILIŞ EKRANI (Boot Screen)
+    - Cihaz ilk çalıştırıldığında 2 saniye boyunca ortalanmış şekilde "GOZ PROJESI" ve altında "V1.5" yazar.
+
+11. GÖZ KIRPARAK HEDEF DEĞİŞTİRME (Blink on Move)
+    - Gözler birbirine uzak hedefler arasında ani geçiş yapacaksa, bu mekanik kaymayı gizlemek için %70 ihtimalle hareket esnasında otomatik olarak göz kırpar.
