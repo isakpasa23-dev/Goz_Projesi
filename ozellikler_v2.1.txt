@@ -1,0 +1,117 @@
+====================================================
+          GÖZ PROJESİ V2.1 ÖZELLİKLERİ (GÜNCEL)
+====================================================
+
+1. DUYGUSAL DURUMLAR (Emotional States)
+   - 4 Temel duygu durumu içerir: Normal, Kısma (Yorgun/Şüpheci), Şaşkın ve Kızgın.
+   - Bu durumlar kendi aralarında olasılıklarla (ağırlıklı havuz sistemiyle) yumuşak geçişler yapar.
+   - Her duygunun kendine has hızları, tepkileri ve göz aralık sınırları vardır.
+
+2. GERÇEKÇİ YAY-SPRING BAKIŞ HAREKETİ
+   - Göz kaslarının organik yapısını taklit etmek amacıyla fiziksel Hooke Kanunu (Yay ve Sönümleme) modeli kullanılır.
+   - Gözler hedeflere doğrusal değil, önce hızlanıp sonra yavaşlayarak ve varış noktasında mikro düzeyde organik bir esneme/sıçrama (spring bounce) yaparak oturur.
+
+3. DUYGU GEÇİŞ SMOOTHER
+   - Duygu değiştiğinde göz aralığının (gozAraligi) aniden sıçramasını engellemek için anlık konum interpolasyonu uygulanır. Gözler birbirine veya dışa doğru yumuşakça kayarak yeni yerini alır.
+
+4. MİKRO "KAS GECİKMESİ" VE TEREDDÜT (Reaction Delay)
+   - Hedef değiştiğinde gözler milisaniyelik bir tereddüt yaşar (40-120 ms arası rastgele kas reaksiyon gecikmesi). Bu gecikme, sinir sisteminden göz kasına iletilmesi simülasyonudur ve gözlerin aşırı mekanik hareket etmesini önler.
+
+5. İVME TABANLI HIZ EĞRİSİ VE JERK KONTROLÜ
+   - Hedef mesafesi uzaklaştıkça göz kası gerginliği (Yay sertliği) dinamik olarak artar. Yakın hedefler yumuşak, uzak hedefler ise çok daha ivmeli ve kararlı taranır.
+
+6. RASTGELE MİKRO DURAKLAMALAR (Hesitation Frames)
+   - Hareket sırasında gözler %1 ihtimalle 1-3 frame boyunca tamamen durur (havada asılı kalma) ve ardından hareketine devam eder. Bu duraksama gözün sürekli doğrusal akmasını engeller.
+
+7. HEDEFE "KİLİTLENME SÜRESİ" VE SIKILMA (Boredom Drift)
+   - Göz bir hedefe kilitlendiğinde bekleme süresinin %50'si aşıldıktan sonra yavaşça odağını kaybetmeye (sıkılmaya) başlar. Hedefin tersi yöne doğru milimetrik süzülmeler gerçekleştirir.
+
+8. ASİMETRİK MİKRO DEFORMASYON
+   - Hareket esnasında sol ve sağ gözler hızlarına bağlı olarak %1-3 oranında birbirinden bağımsız şekilde dikey ve yatayda esner (squash-stretch). Tam simetrinin kırılması canlılık hissini artırır.
+
+9. ZAMANLAMA KÜMELENMESİ (Patternless Pattern)
+   - Zamanlama tamamen rastgele olmaktan çıkarılıp kümelenmiştir. Gözler bazen peş peşe 2-3 hızlı seğirme hareketi yapar (burst), ardından uzun süre boyunca (3-6 sn) tek bir noktaya sabit odaklanır.
+
+10. ASİMETRİK GÖZ KIRPMA (Asymmetric Blinking)
+    - Gözler robot gibi tam olarak aynı anda kapanıp açılmaz. 
+    - 3-8 milisaniye arasında rastgele bir gecikmeyle (sol veya sağ göz önce kapanacak şekilde) asimetrik kırpılırlar.
+
+11. DİNAMİK KIRPMA HIZI VE YUMUŞAKLIK (Quadratic Ease-Out)
+    - Gözün kapanma süresi (duygu durumuna bağlı olarak 75-240ms arası) ile açılma süresi arasında tam olarak 2 katı (2x) fark vardır. 
+    - Açılma animasyonu her zaman kapanmadan daha yavaş gerçekleşir. 
+    - Kırpma animasyonu bitişinde kas gevşemesi hissini vermek için yumuşak bir formül uygulanır.
+
+12. BAĞIMSIZ GÖZ HIZI (Independent Velocity)
+    - İki gözün bir hedefe ulaşma hızları (Fren Katsayısı) birbirinden bağımsız hesaplanır. 
+    - Şaşkınken çok hızlı ve panik şekilde, yorgunken çok yavaş ve uyuşuk hareket ederler.
+    - Kızgın moddayken fren katsayısı (2, 5) aralığına düşürülerek çok daha hızlı, ani ve agresif hareketler sağlanır.
+
+13. BAKTIĞI YÖNE GÖRE ESNEME (Perspective Stretch)
+    - Gözler sağa veya sola fazla baktığında perspektif etkisi yaratılır.
+    - Baktığı yöndeki göz biraz büyür ve genişlerken, diğer göz hafifçe küçülür/büzülür.
+
+14. HAREKET SIRASINDA KAVİS ÇİZME (Arc Movement)
+    - Gözler ekranda bir noktadan diğerine giderken düz bir çizgi üzerinde kaymaz.
+    - Doğal bir görünüm için hafifçe yukarı doğru bir yay (kavis) çizerek hareket eder.
+
+15. YARIM KIRPMA VE ÇOKLU KIRPMA KRİZLERİ (Half & Multi-blink)
+    - %25 ihtimalle gözler tam kapanmak yerine sadece yarıya kadar (kısık) kapanıp açılır. 
+    - Ara sıra peş peşe 3-8 kez çok hızlı şekilde çoklu göz kırpma (multi-blink) atakları geçirir.
+
+16. MİKRO SEĞİRMELER VE DRİFT DÜZELTME (Saccade & Drift Correction)
+    - Göz tamamen sabit bir hedefe bakarken donup kalmaz. 1-2 piksellik oynamalarla gerçek insan gözündeki mikro titreşimleri ("saccade") yapar.
+    - Zamanla mikro titreşimlerin birikip göz merkezini kaydırmasını önlemek için "Drift Correction" (Merkeze Çekme) algoritması uygulanır.
+    - Kızgın durumdayken %1.5 ihtimalle tek bir gözünde seğirme (twitch) meydana gelir.
+
+17. ANLIK KIZGINLIK TİTREMESİ (Anger Jitter)
+    - Kızgın duygu durumundayken gözlere anlık, sürekli ve mikro seviyede bir sarsıntı (Jitter) eklenir. Bu durum öfke hissini çok daha belirgin ve canlı kılar.
+
+18. ŞEKİL ASİMETRİSİ
+    - Gözler şekillerini belirlerken birbirlerinin birebir kopyası olmazlar. 
+    - Dikeyde maksimum 3, yatayda maksimum 3 piksel fark olacak şekilde birbirinden hafifçe farklı boyutlarda hedefler seçerler.
+
+19. GÖZ KIRPARAK HEDEF DEĞİŞTİRME (Blink on Move)
+    - Gözler birbirine uzak hedefler arasında ani geçiş yapacaksa, bu mekanik kaymayı gizlemek için %70 ihtimalle hareket esnasında otomatik olarak göz kırpar.
+
+20. MODÜLER KOD MİMARİSİ
+    - Kodun okunabilirliğini ve yönetilebilirliğini artırmak amacıyla tüm lojik; Konum, Hareket, Kırpma, Duygu ve Çizim fonksiyonları (`konumGuncelle`, `hareketKontrol`, `kirpmaGuncelle`, `duyguKontrol`, `ekraniCiz`) şeklinde modüler parçalara ayrılmıştır.
+
+21. LİDER GÖZ VE GECİKME LATENSİ (Ocular Latency) (Yeni)
+    - Gözler sıçrama (saccade) yaparken biri lider seçilir, diğeri ise onu 15-40 ms arası asimetrik bir kas gecikmesiyle takip eder.
+    - Takipçi göz, lider hedefe vardığında aradaki mesafeyi kapatmak için hızlanır.
+
+22. SACCADIC OVERSHOOT (Lastik Esneme Gücü) (Yeni)
+    - Büyük sıçramalarda gözler %15 ihtimalle hedefi hafifçe aşar ve 80 ms sonra gerçek hedefe geri çekilir.
+
+23. FATIGUE DRIFT (Yorgunluk Sarkması) (Yeni)
+    - Gözler 10 saniyeden uzun süre aynı duygu durumunda kaldığında kas yorgunluğunu taklit etmek amacıyla yavaşça en fazla 2 piksel aşağı sarkar.
+
+24. FATIGUE-DRIVEN BLINK FREQUENCY (Yorgunluk Odaklı Kırpma Sıklığı) (Yeni)
+    - Gözün açık kalma süresi uzadıkça yorgunluk etkisiyle kırpma sıklığı artar (kırpma bekleme süresi %40'a kadar kısalır).
+
+25. OCULAR FLUTTER (Göz Küresi Titremesi) (Yeni)
+    - Sıçrama hareketi tamamlanıp hedefe ulaşıldığında göz bebeklerinde mikro seviyede bir titreme (jöle salınımı) oluşur.
+
+26. EYELID FLUTTER (Göz Kapağı Titremesi) (Yeni)
+    - Göz kırpma animasyonu tamamlanıp gözler açıldığında göz kapaklarında organik bir gevşeme/titreme hareketi görülür.
+
+27. ASİMETRİK AÇILMA KAYMASI (Drift) (Yeni)
+    - Göz kapakları açılırken gözler hafifçe dışa ve aşağı doğru kayar, ardından süzülüp yerlerine yerleşir.
+
+28. BELL FENOMENİ (Göz Bebek Refleksi) (Yeni)
+    - Gözler kırpılırken göz bebekleri koruyucu refleks olarak otomatik olarak yukarı kayar, kapaklar açılınca eski konumuna süzülür.
+
+29. KÖŞELİ KAŞ ÇİZİMİ (Yeni)
+    - Kızgın duygu durumundayken kaş çatılma hissini vermek için gözlerin üst-iç köşeleri keskin bir eğimle kesilir.
+
+30. ASİMETRİK GÖZ KAPAĞI EĞİMİ (Blink Angle) (Yeni)
+    - Kırpma animasyonunda göz kapakları dümdüz inmez, burun tarafı daha eğimli kesilerek biyolojik kapak yapısı taklit edilir.
+
+31. PERSPEKTİF DETAYLI 3D DIŞ KIRPILMA (Yeni)
+    - Gözler kenar sınırlara yaklaştığında perspektif nedeniyle taşan kısımlar dikey ve yatayda doğal olarak kırpılır.
+
+32. ÜST KENAR KIRPMA DÜZELTMESİ (Edge Clipping Fix) (Yeni)
+    - Gözler ekranın en üstündeyken kırpma yapıldığında kapağın takılı kalmasını önleyen düzeltme eklenmiştir (Göz her koşulda 3/4 üst, 1/4 alt oranında doğru kırpılır).
+
+33. KALPLİ AÇILIŞ VE HAFIZA OPTİMİZASYONLARI (Yeni)
+    - Açılışta kalplerle süslenmiş şık logo yer alır. SSD1306 kütüphane splash ekranı kapatılarak ve ölü kodlar silinerek Arduino Uno'nun bellek sınırlarına tam uyum sağlanmıştır.
