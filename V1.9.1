@@ -1,0 +1,1033 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <math.h>
+
+// =========================================================================
+// 1. EKRAN VE DONANIM TANIMLAMALARI
+// =========================================================================
+#define SCREEN_WIDTH 128   // OLED ekran genişliği (piksel)
+#define SCREEN_HEIGHT 64   // OLED ekran yüksekliği (piksel)
+#define OLED_RESET -1      // Reset pini (paylaşılıyorsa veya yoksa -1)
+
+#define abs_f(x) ((x) < 0.0f ? -(x) : (x))
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// =========================================================================
+// 2. HAREKET VE BEKLEME PARAMETRELERİ
+// =========================================================================
+#define minbekleme 2000
+#define maxbekleme 4500    // Sabit hedefe bakarken maksimum bekleme süresi (ms)
+
+// Gözlerin hedefe yaklaşma hızını kontrol eden fren katsayıları.
+// Değer büyüdükçe gözler daha yavaş/yumuşak hareket eder (interpolasyon yumuşar).
+unsigned int solFrenKatsayisi = 5; 
+unsigned int sagFrenKatsayisi = 5; 
+
+int gozKoseYumusatma = 4; // fillRoundRect için köşe yuvarlatma yarıçapı (piksel)
+
+// =========================================================================
+// 3. GÖZ VERİ YAPISI VE BAŞLANGIÇ DURUMLARI
+// =========================================================================
+struct Goz {
+  float x;                // Anlık X koordinatı (göz bebeği merkezi)
+  float y;                // Anlık Y koordinatı (göz bebeği merkezi)
+  float vx;               // X ekseni anlık hızı (Spring fiziği için)
+  float vy;               // Y ekseni anlık hızı (Spring fiziği için)
+  
+  float dikey;            // Anlık dikey boyutu (yükseklik)
+  float yatay;            // Anlık yatay boyutu (genişlik)
+  
+  float hedefDikey;       // Duygu durumuna göre hedeflenen dikey boyut
+  float hedefYatay;       // Duygu durumuna göre hedeflenen yatay boyut
+  
+  float kirpmaEskiDikey;  // Göz kırparken eski dikey boyutu korumak için geçici değişken
+};
+
+// Sol ve Sağ göz başlangıç durumları
+// {x, y, vx, vy, dikey, yatay, hedefDikey, hedefYatay, kirpmaEskiDikey}
+Goz solGoz = {42, 32, 0, 0, 32, 21, 32, 21, 32};
+Goz sagGoz = {86, 32, 0, 0, 32, 21, 32, 21, 32};
+
+// =========================================================================
+// 4. GÖZ KIRPMA SİSTEMİ DEĞİŞKENLERİ
+// =========================================================================
+byte kirpmaDurumu = 0;             // 0: Kırpmıyor, 1: Kapanıyor, 2: Açılıyor
+unsigned long kirpmaAsamaBaslangic = 0; // Aşamanın (kapanma/açılma) başladığı milisaniye
+unsigned int kapanmaSuresi = 0;         // Gözün kapanma animasyon süresi (ms)
+unsigned int acilmaSuresi = 0;          // Gözün açılma animasyon süresi (kapanmanın 2 katı)
+unsigned long sonKirpmaZamani = 0;      // En son göz kırpılan zaman
+unsigned int sonrakiKirpmaSuresi = 3000;// İki kırpma arasındaki rastgele bekleme süresi
+unsigned int kalanKirpmaSayisi = 0;     // Çoklu kırpma (multi-blink) için kalan kırpma adedi
+bool kisilarakHedefDegisiyor = false;   // Hareket sırasında göz kısılarak hedef değiştiriyorsa true
+
+// =========================================================================
+// 5. ODAKLANMA VE DUYGU DEĞİŞKENLERİ
+// =========================================================================
+int ortakhedefX = 64;     // Gözlerin odaklandığı ortak X hedefi (ekran ortası varsayılan)
+int ortakhedefY = 32;     // Gözlerin odaklandığı ortak Y hedefi (ekran ortası varsayılan)
+int gozAraligi = 22;      // İki gözün merkezleri arasındaki hedef yatay mesafe
+float anlikGozAraligi = 22.0f; // Yumuşak geçiş için anlık göz aralığı
+byte mevcutDuygu = 0;     // 0: NORMAL, 1: KISMA, 2: ŞAŞKIN, 3: KIZGIN
+
+// Duygu geçişlerini yumuşatmak ve ani değişimleri engellemek için hafıza ağırlıkları
+float kismaEtkisi = 0;
+float saskinEtkisi = 0;
+float kizginEtkisi = 0;
+
+// Duyguya bağlı olarak dinamik güncellenen kırpma süreleri
+int minKirpmaSuresi = 2000;
+int maxKirpmaSuresi = 5000;
+int gozKirparakHareketSans = 70; // Büyük hareketlerde göz kırpma tetiklenme şansı (%)
+
+// =========================================================================
+// 6. İNSANSILAŞTIRMA VE DOĞALLIK ETMENLERİ
+// =========================================================================
+int limitDikeyKirpma = 1;         // Kırpma esnasında gözün ineceği minimum dikey boyut (1: tam, >1: yarım)
+int solGozKirpmaGecikmesi = 0;     // Sol gözün kırpma gecikmesi (ms, asimetri için)
+int sagGozKirpmaGecikmesi = 0;     // Sağ gözün kırpma gecikmesi (ms, asimetri için)
+
+// Duygu değişim zamanlayıcısı
+unsigned long sonDuyguZamani = 0;
+unsigned int beklemeSuresiDuygu = 4000;
+
+// Saccade (Göz titremesi / mikro hareketler) için offset değerleri
+int saccadeX = 0;
+int saccadeY = 0;
+
+// Göz hareket durumları (State Machine)
+const byte STATE_ODAK = 0;
+const byte STATE_SICRAMA = 1;
+const byte STATE_DURAKLAMA = 2;
+const byte STATE_BURST = 3;
+byte gozState = STATE_ODAK;
+
+unsigned long hedefeVarmaZamani = 0; 
+unsigned int beklemeSuresi = 0;    
+
+// Jitter (Kızgınlık titremesi) offsetleri
+int jitterX = 0;
+int jitterY = 0;
+
+// --- GERÇEKÇİ ORGANİK HAREKET VE ZAMANLAMA YENİLİKLERİ ---
+unsigned long hedefDegisimZamani = 0; // Hedefin en son değiştiği milisaniye
+unsigned int tepkiGecikmesi = 0;      // 40-120 ms arası kas reaksiyon gecikmesi
+byte duraklamaFrameSayisi = 0;        // Hareketi 1-3 frame dondurmak için sayaç
+byte burstCount = 0;                  // Hızlı peş peşe saccade kümesi sayacı
+float solScaleW = 1.0f, solScaleH = 1.0f; // Anlık asimetrik esneme oranları
+float sagScaleW = 1.0f, sagScaleH = 1.0f;
+unsigned long duyguBaslangicZamani = 0;   // Fatigue drift (yorgunluk kayması) için zamanlayıcı
+float microTremorX = 0.0f, microTremorY = 0.0f; // Micro fixation correction için anlık titreşimler
+bool solGozLider = true; // V1.8.4: Hangi gözün önce hareket edeceğini belirler
+bool isDemo = false;
+
+// --- V1.9.1 İleri Biyolojik Gerçekçilik Değişkenleri ---
+unsigned int kirpmaDuraklamaSuresi = 0; // Kırpma sonrası kapalı kalma bekleme süresi (ms)
+float flutterAmp = 0.0f; // Sıçrama sonrası göz küresi titreşim genliği (Ocular Flutter)
+float solAccX = 0.0f, solAccY = 0.0f; // Sol göz anlık ivme değerleri
+float sagAccX = 0.0f, sagAccY = 0.0f; // Sağ göz anlık ivme değerleri
+void showLogo();
+void runDemoEmotion(byte duygu, unsigned long duration);
+void konumGuncelle();
+void kirpmaGuncelle();
+void ekraniCiz();
+void yeniHedefBelirle(bool isBurst);
+void hareketKontrol();
+void duyguKontrol();
+
+// =========================================================================
+// 7. GÖZ KIRPMA TETİKLEYİCİSİ (ASİMETRİ VE YARIM KIRPMA HESAPLARI)
+// =========================================================================
+void gozKirpTetikle() {
+  if (kirpmaDurumu == 0) {
+    kirpmaDurumu = 1; // Kapanma aşamasına geç
+    kirpmaAsamaBaslangic = millis();
+
+    // Duyguya Göre Dinamik Kas Hızı
+    if (mevcutDuygu == 2 || mevcutDuygu == 3) { // ŞAŞKIN veya KIZGIN
+      kapanmaSuresi = random(40, 71); // Çok hızlı (adrenalin/kırbaç)
+    } else if (mevcutDuygu == 1) { // KISIK
+      kapanmaSuresi = random(120, 186); // Yavaş ve ağır kas hareketi
+    } else { // NORMAL
+      kapanmaSuresi = random(50, 111); // Standart orta hız
+    }
+    acilmaSuresi = kapanmaSuresi * 2; // Açılma süresi kesinlikle kapanmanın 2 katı (2x kuralı)
+
+    // Ardışık Kırpmada İkinci Adım Kusursuzluğu: Korneayı temizlemek için double-blink'te tam kapanma zorunluluğu
+    if (kalanKirpmaSayisi > 0) {
+      limitDikeyKirpma = 1;
+    } else {
+      // Yarım Kırpma Kontrolü: %25 ihtimalle gözler tam kapanmaz (12-18 piksel aralığında kalır)
+      if (random(100) < 25) {
+        limitDikeyKirpma = random(12, 18);
+      } else {
+        limitDikeyKirpma = 1;
+      }
+    }
+
+    // Milisaniyelik Asimetrik Kırpma: Sol ve sağ göz arasında 3-8 ms arası rastgele bir gecikme yaratılır
+    int gecikme = random(3, 9);
+    if (random(2) == 0) {
+      solGozKirpmaGecikmesi = gecikme;
+      sagGozKirpmaGecikmesi = 0;
+    } else {
+      solGozKirpmaGecikmesi = 0;
+      sagGozKirpmaGecikmesi = gecikme;
+    }
+
+    // Mevcut dikey boyutları kırpma öncesi hafızaya al
+    solGoz.kirpmaEskiDikey = solGoz.hedefDikey;
+    sagGoz.kirpmaEskiDikey = sagGoz.hedefDikey; 
+
+    kisilarakHedefDegisiyor = true;
+  }
+}
+
+// =========================================================================
+// 8. ODAK VE DUYGUYA GÖRE HEDEF ŞEKİL GÜNCELLEMELERİ
+// =========================================================================
+void gozHedefleriniGuncelle() {
+  // Organik asimetri için gözler arasında maksimum 1 piksellik küçük boyut farkları (V1.8: Dengeleme)
+  int solRastgeleD = random(-1, 2); 
+  int solRastgeleY = random(-1, 2); 
+  int sagRastgeleD = random(-1, 2); 
+  int sagRastgeleY = random(-1, 2);
+
+  // Gözün ekrandaki pozisyonuna göre odak derinliği offseti hesaplanır.
+  int dx_abs = abs(ortakhedefX - 64);
+  int dy_signed = ortakhedefY - 32;
+  int dy_abs = abs(dy_signed);
+  float dist = (dx_abs > dy_abs) ? (dx_abs + 0.4f * dy_abs) : (dy_abs + 0.4f * dx_abs);
+  float odakOffset = (dist * 0.077778f) - 1.5f; // (dist / 45.0) * 3.5 hesaplamasının optimize edilmiş hali
+
+  // Kapak-Bebek Koordinasyonu: Göz yukarı bakınca kapaklar açılır, aşağı bakınca kısılır (Daha Belirgin).
+  float bakisDikeyOffset = dy_signed * -0.22f;
+
+  // Odaklanma Derinliğine Göre Yakınsama (Vergence): Ekran ortasına (64) yaklaştıkça göz aralığı daralır.
+  int merkezSapmaX = abs(ortakhedefX - 64);
+  float vergenceOffset = (merkezSapmaX * 0.15f) - 2.0f; // Ortadayken -2px içe kayar, kenarlardayken dışa paralelleşir.
+
+  switch (mevcutDuygu) {
+    case 0: // --- NORMAL DUYGU ---
+      solGoz.hedefYatay = max(10.0, 21 + solRastgeleY + odakOffset);  
+      solGoz.hedefDikey = max(10.0, 32 + solRastgeleD + odakOffset + bakisDikeyOffset);
+      sagGoz.hedefYatay = max(10.0, 21 + sagRastgeleY + odakOffset);  
+      sagGoz.hedefDikey = max(10.0, 32 + sagRastgeleD + odakOffset + bakisDikeyOffset);
+      gozAraligi = random(20, 24) + vergenceOffset; 
+      break;
+
+    case 1: // --- KISIK / YORGUN DUYGU ---
+      solGoz.hedefYatay = max(10.0, 21 + solRastgeleY + (odakOffset * 0.5f));  
+      solGoz.hedefDikey = max(8.0, 16 + solRastgeleD + (odakOffset * 0.5f) + (bakisDikeyOffset * 0.5f));
+      sagGoz.hedefYatay = max(10.0, 21 + sagRastgeleY + (odakOffset * 0.5f));  
+      sagGoz.hedefDikey = max(8.0, 16 + sagRastgeleD + (odakOffset * 0.5f) + (bakisDikeyOffset * 0.5f));
+      gozAraligi = random(20, 24) + vergenceOffset; 
+      break;
+
+    case 2: // --- ŞAŞKIN DUYGU ---
+      solGoz.hedefYatay = max(15.0, 32 + solRastgeleY + odakOffset);  
+      solGoz.hedefDikey = max(20.0, 42 + solRastgeleD + odakOffset + bakisDikeyOffset);
+      sagGoz.hedefYatay = max(15.0, 32 + sagRastgeleY + odakOffset);  
+      sagGoz.hedefDikey = max(20.0, 42 + sagRastgeleD + odakOffset + bakisDikeyOffset);
+      gozAraligi = random(26, 30) + vergenceOffset; 
+      break;
+
+    case 3: // --- KIZGIN DUYGU ---
+      solGoz.hedefYatay = 28 + solRastgeleY;  
+      solGoz.hedefDikey = max(12.0, 22 + solRastgeleD + (bakisDikeyOffset * 0.5f)); // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
+      sagGoz.hedefYatay = 28 + sagRastgeleY;  
+      sagGoz.hedefDikey = max(12.0, 22 + sagRastgeleD + (bakisDikeyOffset * 0.5f)); // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
+      gozAraligi = random(16, 19) + vergenceOffset; 
+      break;
+  }
+}
+
+// =========================================================================
+// 9. AĞIRLIKLI RASGELE DUYGU SEÇİMİ
+// =========================================================================
+byte duyguSec() {
+  bool ortada = (ortakhedefX >= 54 && ortakhedefX <= 74) && 
+                (ortakhedefY >= 12 && ortakhedefY <= 28);
+
+  int normalAgirlik = ortada ? 900 : 920;
+  int kizginAgirlik = ortada ? 75 : 2;
+  int kismaAgirlik  = ortada ? 20 : 63;
+  int saskinAgirlik = ortada ? 5 : 15;
+
+  int toplamNormal = normalAgirlik;
+  
+  int toplamKisma = kismaAgirlik + (int)kismaEtkisi;
+  if (toplamKisma < 0) toplamKisma = 0;
+
+  int toplamKizgin = kizginAgirlik + (int)kizginEtkisi;
+  if (toplamKizgin < 0) toplamKizgin = 0;
+
+  int toplamSaskin = saskinAgirlik + (int)saskinEtkisi;
+  if (toplamSaskin < 0) toplamSaskin = 0;
+
+  int toplamHavuz = toplamNormal + toplamKisma + toplamKizgin + toplamSaskin;
+  if (toplamHavuz <= 0) toplamHavuz = 1; 
+
+  int r = random(toplamHavuz);
+
+  if (r < toplamNormal) return 0; // NORMAL
+  else if (r < toplamNormal + toplamKisma) return 1; // KISMA
+  else if (r < toplamNormal + toplamKisma + toplamSaskin) return 2; // ŞAŞKIN
+  else return 3; // KIZGIN
+}
+
+void showLogo() {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  
+  display.setTextSize(2);
+  display.setCursor(47, 11);
+  display.println(F("GOZ"));
+  
+  display.setCursor(23, 29);
+  display.println(F("PROJESI"));
+  
+  display.setTextSize(1);
+  display.setCursor(46, 47);
+  display.println(F("V1.9.1"));
+  
+  display.display();
+}
+
+void runDemoEmotion(byte duygu, unsigned long duration) {
+  mevcutDuygu = duygu;
+  gozHedefleriniGuncelle();
+  
+  unsigned long start = millis();
+  while (millis() - start < duration) {
+    loop();
+    delay(10); // CPU'yu rahatlat ve ~100 FPS limit koy
+  }
+}
+
+// =========================================================================
+// 10. SETUP (BAŞLANGIÇ EKRANI VE DONANIM KURULUMU)
+// =========================================================================
+void setup() {
+  unsigned long gercekRastgele = 0;
+  for (int i = 0; i < 15; i++) {
+    gercekRastgele += analogRead(A0); 
+    delay(2);
+  }
+  randomSeed(gercekRastgele + micros());
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    while (1); 
+  }
+
+  // 1. Logo Ekranı
+  showLogo();
+  delay(2000); 
+
+  // 2. Demo Duyguları Sırasıyla Göster (Her biri 2 saniye)
+  isDemo = true;
+  runDemoEmotion(0, 2000); // NORMAL
+  runDemoEmotion(2, 2000); // ŞAŞKIN
+  runDemoEmotion(3, 2000); // KIZGIN
+  runDemoEmotion(1, 2000); // KISMA
+  isDemo = false;
+
+  // 3. Tekrar Logo Ekranı (Demosuz Başlangıç Hissi)
+  showLogo();
+  delay(2000);
+
+  // 4. Normal Döngü Başlangıç Zamanları
+  hedefDegisimZamani = millis();
+  sonDuyguZamani = millis();
+  hedefeVarmaZamani = millis();
+  gozState = STATE_ODAK;
+  beklemeSuresi = random(minbekleme, maxbekleme);
+  mevcutDuygu = 0; // Normal duyguyla başla
+  gozHedefleriniGuncelle();
+}
+
+// =========================================================================
+// 11. MİMARİ ALT FONKSİYONLAR (SUB-FUNCTIONS)
+// =========================================================================
+
+// --- ADIM 1: Konum, Boyut ve Fiziksel Limit Güncellemeleri ---
+void konumGuncelle() {
+  // Göz aralığını yumuşak bir şekilde hedefe yaklaştır (Duygu Geçiş Smoother)
+  anlikGozAraligi += (gozAraligi - anlikGozAraligi) * 0.1f;
+
+  // Sıçrama Sonrası Göz Küresi Titremesi (Ocular Flutter) sönümleme hesabı
+  flutterAmp *= -0.5f;
+  if (abs_f(flutterAmp) < 0.1f) flutterAmp = 0.0f;
+
+  // 1. Donma (Hesitation) Durum Kontrolü
+  if (gozState == STATE_DURAKLAMA) {
+    if (duraklamaFrameSayisi > 0) {
+      duraklamaFrameSayisi--;
+      solScaleW = 1.0f; solScaleH = 1.0f;
+      sagScaleW = 1.0f; sagScaleH = 1.0f;
+      if (duraklamaFrameSayisi == 0) {
+        gozState = STATE_SICRAMA;
+      }
+      return; 
+    }
+  }
+
+  // 2. Yorgunluk Kayması (Fatigue Drift): Uzun süre aynı duygu kalınca gözler 1-2px aşağı sarkar
+  float yorgunlukDriftY = 0;
+  unsigned long gecenSure = millis() - duyguBaslangicZamani;
+  if (gecenSure > 10000) { // 10. saniyeden sonra başlar
+    float oran = constrain((float)(gecenSure - 10000) / 20000.0f, 0.0f, 1.0f);
+    yorgunlukDriftY = oran * 1.8f; // En fazla 1.8 piksel aşağı kayma
+  }
+
+  int solHedefX = (ortakhedefX + saccadeX) - (int)anlikGozAraligi;
+  int sagHedefX = (ortakhedefX + saccadeX) + (int)anlikGozAraligi;
+  int ortakY = ortakhedefY + saccadeY + (int)yorgunlukDriftY;
+
+  // 3. Kas Gecikmesi Kontrolü (Yalnızca Sıçrama Durumunda Aktif)
+  bool solGecikme = false;
+  bool sagGecikme = false;
+
+  if (gozState == STATE_SICRAMA) {
+    // V1.8.4: Lider göz latency asimetrisi (biri 25ms gecikmeli başlar)
+    solGecikme = (millis() - hedefDegisimZamani < tepkiGecikmesi + (solGozLider ? 0 : 25));
+    sagGecikme = (millis() - hedefDegisimZamani < tepkiGecikmesi + (solGozLider ? 25 : 0));
+  }
+
+  // --- Hız Asimetrisi & Yakınsama İçin Uzaklık Ön Hesaplamaları ---
+  float solDx = solHedefX - solGoz.x;
+  float solDy = ortakY - solGoz.y;
+  float solAbsX = (solDx < 0) ? -solDx : solDx;
+  float solAbsY = (solDy < 0) ? -solDy : solDy;
+  float solDist = (solAbsX > solAbsY) ? (solAbsX + 0.4f * solAbsY) : (solAbsY + 0.4f * solAbsX);
+
+  float sagDx = sagHedefX - sagGoz.x;
+  float sagDy = ortakY - sagGoz.y;
+  float sagAbsX = (sagDx < 0) ? -sagDx : sagDx;
+  float sagAbsY = (sagDy < 0) ? -sagDy : sagDy;
+  float sagDist = (sagAbsX > sagAbsY) ? (sagAbsX + 0.4f * sagAbsY) : (sagAbsY + 0.4f * sagAbsX);
+
+  // Senkronize Olmayan Saccade Hızları: Takipçi göz, lider hedefe yaklaşınca ivmelenip arayı kapatır.
+  if (gozState == STATE_SICRAMA) {
+    if (!solGozLider && sagDist < 6.0f && solFrenKatsayisi > 3) {
+      solFrenKatsayisi--;
+    }
+    if (solGozLider && solDist < 6.0f && sagFrenKatsayisi > 3) {
+      sagFrenKatsayisi--;
+    }
+  }
+
+  // --- GERÇEKÇİ YAY-SPRING FİZİĞİ (Göz kası sönümleme efekti) ---
+  float maxAcc = 1.2f;
+
+  // Sol Göz Yay Hesabı
+  if (solGecikme) {
+    solGoz.vx *= 0.5f;
+    solGoz.vy *= 0.5f;
+    solAccX = 0; solAccY = 0;
+  } else {
+    float solK = (0.08f + (10.0f - solFrenKatsayisi) * 0.01f) * (1.0f + solDist * 0.01f); 
+    solK = constrain(solK, 0.05f, 0.30f);
+    float solD = 0.70f;
+    if (solDist < 3.0f) solD = 0.45f;
+    float solAx = constrain(solDx * solK, -maxAcc, maxAcc);
+    float solAy = constrain(solDy * solK, -maxAcc, maxAcc);
+    solGoz.vx = (solGoz.vx + solAx) * solD;
+    solGoz.vy = (solGoz.vy + solAy) * solD;
+    solGoz.x += solGoz.vx;
+    solGoz.y += solGoz.vy;
+
+    // Dinamik ivmeyi kaydet (Esneme deformasyonu için)
+    solAccX = solAx; solAccY = solAy;
+  }
+
+  // Sağ Göz Hesaplamaları
+  if (sagGecikme) {
+    sagGoz.vx *= 0.5f;
+    sagGoz.vy *= 0.5f;
+    sagAccX = 0; sagAccY = 0;
+  } else {
+    float sagK = (0.08f + (10.0f - sagFrenKatsayisi) * 0.01f) * (1.0f + sagDist * 0.01f); 
+    sagK = constrain(sagK, 0.05f, 0.30f);
+    float sagD = 0.70f;
+    if (sagDist < 3.0f) sagD = 0.45f;
+    float sagAx = constrain(sagDx * sagK, -maxAcc, maxAcc);
+    float sagAy = constrain(sagDy * sagK, -maxAcc, maxAcc);
+    sagGoz.vx = (sagGoz.vx + sagAx) * sagD;
+    sagGoz.vy = (sagGoz.vy + sagAy) * sagD;
+    sagGoz.x += sagGoz.vx;
+    sagGoz.y += sagGoz.vy;
+
+    // Dinamik ivmeyi kaydet (Esneme deformasyonu için)
+    sagAccX = sagAx; sagAccY = sagAy;
+  }
+
+  // Göz kırpma animasyonu yokken dikey boyutu hedefe süzündür
+  if (kirpmaDurumu == 0) {
+    solGoz.dikey += (solGoz.hedefDikey - solGoz.dikey) / solFrenKatsayisi;
+    sagGoz.dikey += (sagGoz.hedefDikey - sagGoz.dikey) / sagFrenKatsayisi;
+  }
+  
+  // Yatay boyut interpolasyonları
+  solGoz.yatay += (solGoz.hedefYatay - solGoz.yatay) / solFrenKatsayisi;
+  sagGoz.yatay += (sagGoz.hedefYatay - sagGoz.yatay) / sagFrenKatsayisi;
+}
+
+// --- YENİ YARDIMCI FONKSİYON: Rastgele Hedef ve Fren Belirleyici ---
+void yeniHedefBelirle(bool isBurst) {
+  hedefDegisimZamani = millis();
+  tepkiGecikmesi = random(40, 120);
+  solGozLider = (random(2) == 0); // Hangi gözün önce hareket edeceğini belirler
+
+  if (isBurst) {
+    // --- MİKRO SÜZME (BURST) ---
+    ortakhedefX = constrain(ortakhedefX + random(-8, 9), 32, 96);
+    ortakhedefY = constrain(ortakhedefY + random(-6, 7), 5, 35);
+    beklemeSuresi = random(200, 600); // Tarama sırasında duraklama çok kısadır
+
+    if (mevcutDuygu == 2) {       // ŞAŞKIN
+      solFrenKatsayisi = random(10, 15);
+    } else if (mevcutDuygu == 1) { // KISMA
+      solFrenKatsayisi = random(20, 30);
+    } else {                       // NORMAL ve KIZGIN
+      solFrenKatsayisi = random(15, 25);
+    }
+    sagFrenKatsayisi = solFrenKatsayisi + random(-1, 2);
+  } 
+  else {
+    // --- BÜYÜK HAREKET ---
+    int hareketTipi = random(100);
+    bool yavasMod = false;
+    int yavasSans = 20; // NORMAL varsayılan %20
+
+    if (mevcutDuygu == 1) yavasSans = 70;      // KISMA %70
+    else if (mevcutDuygu == 3) yavasSans = 45; // KIZGIN %45
+    else if (mevcutDuygu == 2) yavasSans = 30; // ŞAŞKIN %30
+
+    if (hareketTipi < 70) {
+      yavasMod = (random(100) < yavasSans);
+    }
+
+    if (hareketTipi < 70) { // --- BÜYÜK HAREKET ---
+      ortakhedefX = random(32, 97);
+      ortakhedefY = random(5, 36);
+      
+      if (mevcutDuygu == 2) {       // ŞAŞKIN
+        solFrenKatsayisi = yavasMod ? random(10, 18) : random(3, 6);
+      } else if (mevcutDuygu == 1) { // KISMA
+        solFrenKatsayisi = yavasMod ? random(20, 35) : random(8, 14);
+      } else if (mevcutDuygu == 3) { // KIZGIN
+        solFrenKatsayisi = yavasMod ? random(8, 15) : random(2, 5); 
+      } else {                       // NORMAL
+        solFrenKatsayisi = yavasMod ? random(16, 26) : random(4, 10);
+      }
+      sagFrenKatsayisi = solFrenKatsayisi + random(-1, 2);
+    } 
+    else { // --- MİKRO SÜZME ---
+      ortakhedefX = constrain(ortakhedefX + random(-8, 9), 32, 96);
+      ortakhedefY = constrain(ortakhedefY + random(-6, 7), 5, 35);
+      
+      if (mevcutDuygu == 2) {
+        solFrenKatsayisi = random(10, 15);
+      } else if (mevcutDuygu == 1) {
+        solFrenKatsayisi = random(20, 30);
+      } else {
+        solFrenKatsayisi = random(15, 25);
+      }
+      sagFrenKatsayisi = solFrenKatsayisi + random(-1, 2);
+    }
+  }
+
+  if (sagFrenKatsayisi < 3) sagFrenKatsayisi = 3;
+  if (sagFrenKatsayisi > 30) sagFrenKatsayisi = 30; 
+  if (solFrenKatsayisi < 3) solFrenKatsayisi = 3;
+  if (solFrenKatsayisi > 30) solFrenKatsayisi = 30;
+
+  gozHedefleriniGuncelle();
+}
+
+// --- ADIM 2: Hedefe Varma ve Mikro Seğirme (Saccade) Yönetimi ---
+void hareketKontrol() {
+  if (isDemo) {
+    ortakhedefX = 64;
+    ortakhedefY = 32;
+    solFrenKatsayisi = 12;
+    sagFrenKatsayisi = 12;
+    saccadeX = 0;
+    saccadeY = 0;
+    jitterX = 0;
+    jitterY = 0;
+    if (mevcutDuygu == 3) {
+      jitterX = random(-2, 3);
+      jitterY = random(-2, 3);
+    }
+    return;
+  }
+
+  int solHedefX = (ortakhedefX + saccadeX) - (int)anlikGozAraligi;
+  int sagHedefX = (ortakhedefX + saccadeX) + (int)anlikGozAraligi;
+  int ortakY = ortakhedefY + saccadeY;
+
+  switch (gozState) {
+    case STATE_ODAK: {
+      // 1. Saccade Titremesi: Sabit bakarken %2 şansla mikro seğirme
+      if (random(1000) < 20) { 
+        saccadeX += random(-1, 2); 
+        saccadeY += random(-1, 2); 
+        saccadeX = constrain(saccadeX, -1, 1); 
+        saccadeY = constrain(saccadeY, -1, 1);
+      }
+
+      // 2. Saccade Drift Düzeltmesi: Seğirmenin birikmesini önleyip merkeze çekme
+      if (random(100) < 10) { 
+        if (saccadeX > 0) saccadeX--;
+        else if (saccadeX < 0) saccadeX++;
+        if (saccadeY > 0) saccadeY--;
+        else if (saccadeY < 0) saccadeY++;
+      }
+
+      // 3. Micro Fixation Correction: Doğal milimetrik titreme (Kaotik Gürültü)
+      // 3. Micro Fixation Correction: Doğal milimetrik titreme (Yavaş ve Çok Hafif)
+      if (random(100) < 10) {
+        microTremorX = random(-10, 11) * 0.01f;
+        microTremorY = random(-10, 11) * 0.01f;
+      }
+
+      // 4. Hedefe Kilitlenme Süresi (Boredom drift): Beklemenin %50'sinden sonra hafif süzülme
+      if (millis() - hedefeVarmaZamani > beklemeSuresi * 0.5f) {
+        solGoz.x += (solGoz.x > 32) ? -0.04f : 0.04f;
+        sagGoz.x += (sagGoz.x > 96) ? -0.04f : 0.04f;
+      }
+
+      // 5. Kızgınken tek göz seğirmesi (%1.5 şans)
+      if (mevcutDuygu == 3 && random(1000) < 15) {
+        if (random(2) == 0) solGoz.dikey -= random(2, 4);
+        else sagGoz.dikey -= random(2, 4);
+      }
+
+      // 6. Zamanlayıcı dolduysa yeni hedefe geç
+      if (millis() - hedefeVarmaZamani > beklemeSuresi) {
+        // %25 ihtimalle BURST (tarama) moduna geç, %75 ihtimalle normal sıçra
+        if (random(100) < 25) {
+          burstCount = random(1, 4);
+          gozState = STATE_BURST;
+        } else {
+          yeniHedefBelirle(false);
+          gozState = STATE_SICRAMA;
+        }
+      }
+      break;
+    }
+
+    case STATE_BURST: {
+      yeniHedefBelirle(true);
+      gozState = STATE_SICRAMA;
+      break;
+    }
+
+    case STATE_SICRAMA: {
+      saccadeX = 0;
+      saccadeY = 0;
+
+      // Sıçrama esnasında %1 ihtimalle kas donması (tereddüt) tetikle
+      if (random(300) == 0) {
+        duraklamaFrameSayisi = random(1, 4);
+        gozState = STATE_DURAKLAMA;
+        return;
+      }
+
+      // Hedefe ulaşıldı mı kontrolü
+      bool tamam = 
+        abs_f(solHedefX - solGoz.x) < 2.0f &&
+        abs_f(sagHedefX - sagGoz.x) < 2.0f &&
+        abs_f(ortakY - solGoz.y) < 2.0f &&
+        abs_f(ortakY - sagGoz.y) < 2.0f &&
+        abs_f(solGoz.vx) < 0.3f &&
+        abs_f(sagGoz.vx) < 0.3f;
+
+      // Watchdog veya hedefe varma
+      if (tamam || (millis() - hedefDegisimZamani > 3000)) {
+        // Büyük hareketlerde göz kırpma tetiklenme şansı
+        float dx_m = abs_f(solHedefX - solGoz.x);
+        float dy_m = abs_f(ortakY - solGoz.y);
+        float mesafe = (dx_m > dy_m) ? (dx_m + 0.4f * dy_m) : (dy_m + 0.4f * dx_m);
+        if (mesafe > 10.0f && random(100) < gozKirparakHareketSans) {
+          gozKirpTetikle();
+        }
+
+        if (burstCount > 0) {
+          burstCount--;
+          if (burstCount > 0) {
+            gozState = STATE_BURST;
+          } else {
+            hedefeVarmaZamani = millis();
+            beklemeSuresi = random(minbekleme, maxbekleme);
+            gozState = STATE_ODAK;
+            flutterAmp = (random(2) == 0) ? 1.0f : -1.0f; // Sıçrama sonrası hafif jöle etkisi (Ocular Flutter)
+          }
+        } else {
+          hedefeVarmaZamani = millis();
+          beklemeSuresi = random(minbekleme, maxbekleme);
+          gozState = STATE_ODAK;
+          flutterAmp = (random(2) == 0) ? 1.0f : -1.0f; // Sıçrama sonrası hafif jöle etkisi (Ocular Flutter)
+        }
+      }
+      break;
+    }
+
+    case STATE_DURAKLAMA: {
+      // Donma durumunda hiçbir şey yapılmaz, konumGuncelle durumu geri çevirir.
+      break;
+    }
+  }
+
+  // Kızgınlık Titremesi (Jitter)
+  if (mevcutDuygu == 3) {
+    jitterX = random(-2, 3);
+    jitterY = random(-2, 3);
+  } else {
+    jitterX = 0;
+    jitterY = 0;
+  }
+}
+
+
+// --- ADIM 3: Göz Kırpma Animasyon Eylemleri ---
+void kirpmaGuncelle() {
+  // Periyodik göz kırpma tetiklemesi
+  if (kirpmaDurumu == 0 && (millis() - sonKirpmaZamani > sonrakiKirpmaSuresi)) {
+      if (kalanKirpmaSayisi == 0) {
+        int r_blink = random(1000);
+        int multiSans = random(5, 13);    
+        int doubleSans = random(40, 61);  
+        
+        if (r_blink < multiSans) {
+          kalanKirpmaSayisi = random(3, 8); 
+          kismaEtkisi = 8000;               
+        } else if (r_blink < (doubleSans + multiSans)) {
+          kalanKirpmaSayisi = 1;            
+        } else {
+          kalanKirpmaSayisi = 0;            
+        }
+      }
+
+      gozKirpTetikle();
+      kisilarakHedefDegisiyor = false; // Periyodik kırpmada hedef değişimi yok
+  }
+
+  // --- Kapanma Aşaması ---
+  if (kirpmaDurumu == 1) { 
+    unsigned long t = millis() - kirpmaAsamaBaslangic;
+    int limitDikey = kisilarakHedefDegisiyor ? 8 : limitDikeyKirpma; 
+
+    long t_sol = (long)t - solGozKirpmaGecikmesi;
+    if (t_sol < 0) t_sol = 0;
+    float oran_sol = constrain((float)t_sol / kapanmaSuresi, 0.0f, 1.0f);
+    solGoz.dikey = solGoz.kirpmaEskiDikey - (solGoz.kirpmaEskiDikey - limitDikey) * oran_sol;
+
+    long t_sag = (long)t - sagGozKirpmaGecikmesi;
+    if (t_sag < 0) t_sag = 0;
+    float oran_sag = constrain((float)t_sag / kapanmaSuresi, 0.0f, 1.0f);
+    sagGoz.dikey = sagGoz.kirpmaEskiDikey - (sagGoz.kirpmaEskiDikey - limitDikey) * oran_sag;
+
+    if (t_sol >= kapanmaSuresi && t_sag >= kapanmaSuresi) {
+      solGoz.dikey = limitDikey;
+      sagGoz.dikey = limitDikey;
+      kirpmaDurumu = 3; // Kapanma sonrası Statik Bekleme (Inter-Blink Pause) aşamasına geç
+      kirpmaDuraklamaSuresi = random(10, 31); // 10-30 ms arası tamamen kapalı kalış
+      kirpmaAsamaBaslangic = millis();
+    }
+  } 
+  // --- Statik Bekleme Aşaması (Inter-Blink Pause) ---
+  else if (kirpmaDurumu == 3) {
+    int limitDikey = kisilarakHedefDegisiyor ? 8 : limitDikeyKirpma;
+    solGoz.dikey = limitDikey;
+    sagGoz.dikey = limitDikey;
+    if (millis() - kirpmaAsamaBaslangic >= kirpmaDuraklamaSuresi) {
+      kirpmaDurumu = 2; // Açılma aşamasına geç
+      kirpmaAsamaBaslangic = millis();
+    }
+  }
+  // --- Açılma Aşaması ---
+  else if (kirpmaDurumu == 2) { 
+    unsigned long t = millis() - kirpmaAsamaBaslangic;
+    int limitDikey = kisilarakHedefDegisiyor ? 8 : limitDikeyKirpma;
+
+    long t_sol = (long)t - solGozKirpmaGecikmesi;
+    if (t_sol < 0) t_sol = 0;
+    float oran_sol = constrain((float)t_sol / acilmaSuresi, 0.0f, 1.0f);
+    oran_sol = 1.0f - (1.0f - oran_sol) * (1.0f - oran_sol); // Quadratic Ease-Out
+    solGoz.dikey = limitDikey + (solGoz.kirpmaEskiDikey - limitDikey) * oran_sol;
+
+    long t_sag = (long)t - sagGozKirpmaGecikmesi;
+    if (t_sag < 0) t_sag = 0;
+    float oran_sag = constrain((float)t_sag / acilmaSuresi, 0.0f, 1.0f);
+    oran_sag = 1.0f - (1.0f - oran_sag) * (1.0f - oran_sag); // Quadratic Ease-Out
+    sagGoz.dikey = limitDikey + (sagGoz.kirpmaEskiDikey - limitDikey) * oran_sag;
+
+    if (t_sol >= acilmaSuresi && t_sag >= acilmaSuresi) {
+      solGoz.dikey = solGoz.kirpmaEskiDikey;
+      sagGoz.dikey = sagGoz.kirpmaEskiDikey; 
+      kirpmaDurumu = 0; 
+      sonKirpmaZamani = millis(); 
+      kisilarakHedefDegisiyor = false; 
+
+      if (kalanKirpmaSayisi > 0) {
+        kalanKirpmaSayisi--;
+        sonrakiKirpmaSuresi = random(60, 200); 
+      } else {
+        // V1.8.4: Negatif limit risklerini önlemek için tek bir temiz random çağrısı
+        sonrakiKirpmaSuresi = random(minKirpmaSuresi - 500, maxKirpmaSuresi + 1500); 
+        if (sonrakiKirpmaSuresi < 1000) sonrakiKirpmaSuresi = 1000;
+      }
+    }
+  }
+}
+
+// --- ADIM 4: Periyodik Duygu Durum Kontrolü ---
+void duyguKontrol() {
+  if (isDemo) return;
+
+  // Duygu hafıza ağırlıkları her frame'de çok hafif sönümlenir (Daha akıcı, sürekli duygu geçişi)
+  kismaEtkisi *= 0.997f;
+  saskinEtkisi *= 0.997f;
+  kizginEtkisi *= 0.997f;
+
+  if (millis() - sonDuyguZamani > beklemeSuresiDuygu) {
+    sonDuyguZamani = millis();
+    beklemeSuresiDuygu = random(3000, 8000); 
+
+    byte yeniDuygu = duyguSec();
+    if (yeniDuygu != mevcutDuygu) {
+      mevcutDuygu = yeniDuygu;
+      duyguBaslangicZamani = millis(); // Yorgunluk zamanlayıcısını sıfırla
+
+      if (mevcutDuygu == 0) { // NORMAL
+        kismaEtkisi = -500; 
+        saskinEtkisi = -400;
+        kizginEtkisi = -450;
+
+        minKirpmaSuresi = 2000;
+        maxKirpmaSuresi = 3500; // V1.8.4: Maksimum bekleme 5 saniyeye düşürüldü (3500 + 1500 offset)
+        gozKirparakHareketSans = 35;
+      } 
+      else if (mevcutDuygu == 1) { // KISMA
+        kismaEtkisi = 400;  
+        saskinEtkisi = -300; 
+        kizginEtkisi = 0;    
+
+        minKirpmaSuresi = 2000;       
+        maxKirpmaSuresi = 3500; // V1.8.4: Maksimum bekleme 5 saniyeye düşürüldü (3500 + 1500 offset)
+        gozKirparakHareketSans = 70;  
+      } 
+      else if (mevcutDuygu == 2) { // ŞAŞKIN
+        saskinEtkisi = 300;
+        kismaEtkisi = -400;  
+        kizginEtkisi = 0;    
+
+        minKirpmaSuresi = 6000;      
+        maxKirpmaSuresi = 12000;
+        gozKirparakHareketSans = 20;  
+      } 
+      else if (mevcutDuygu == 3) { // KIZGIN
+        kizginEtkisi = 350;
+        saskinEtkisi = -250; 
+        kismaEtkisi = 0;
+
+        minKirpmaSuresi = 6000;      
+        maxKirpmaSuresi = 12000;
+        gozKirparakHareketSans = 70;  
+      }
+
+      solFrenKatsayisi = random(10, 15);
+      sagFrenKatsayisi = solFrenKatsayisi;
+
+      gozHedefleriniGuncelle();
+    }
+  }
+}
+
+// --- ADIM 5: Ekran Çizim Eylemleri (OLED'e Yazma) ---
+void ekraniCiz() {
+  int w1 = (int)(solGoz.yatay * solScaleW);
+  int h1 = (int)(solGoz.dikey * solScaleH);
+  int w2 = (int)(sagGoz.yatay * sagScaleW);
+  int h2 = (int)(sagGoz.dikey * sagScaleH);
+
+  // Perspektif Esneme: Bakılan yöne göre derinlik etkisi (Dinamik ve Belirgin)
+  if (kirpmaDurumu == 0) { 
+    int dx = ortakhedefX - 64;
+    int offset = abs(dx) / 14; // En fazla 2 piksel (32 / 14 = 2.2)
+    if (offset > 0) {
+      if (dx > 0) { // Sağa Bakış: Sağ göz büyür, sol küçülür
+        h2 += offset;
+        w2 += offset;
+        h1 -= offset;
+        w1 -= offset;
+      } 
+      else { // Sola Bakış: Sol göz büyür, sağ küçülür
+        h1 += offset;
+        w1 += offset;
+        h2 -= offset;
+        w2 -= offset;
+      }
+    }
+  }
+
+  // Boyut koruma sınırları (Sadece göz kırpmıyorken gözün yok olmasını önlemek için)
+  if (kirpmaDurumu == 0) {
+    if (w1 < 4) w1 = 4;
+    if (h1 < 4) h1 = 4;
+    if (w2 < 4) w2 = 4;
+    if (h2 < 4) h2 = 4;
+  } else {
+    // Kırpma esnasında yatay genişlik korunsun ama dikey boyutun tam kapanmasına izin verilsin
+    if (w1 < 4) w1 = 4;
+    if (w2 < 4) w2 = 4;
+  }
+
+  // Asimetrik Mikro Deformasyon: Hareket halindeyken göz boyutları hıza ve ivmeye göre asimetrik esner (kırpma yokken)
+  if (gozState == STATE_SICRAMA && kirpmaDurumu == 0) {
+    solScaleW = 1.0f + (solGoz.vx * 0.02f) + (solAccX * 0.08f);
+    solScaleH = 1.0f + (solGoz.vy * 0.02f) + (solAccY * 0.08f);
+    sagScaleW = 1.0f - (sagGoz.vx * 0.02f) - (sagAccX * 0.08f);
+    sagScaleH = 1.0f - (sagGoz.vy * 0.02f) - (sagAccY * 0.08f);
+  } else {
+    solScaleW = 1.0f;
+    solScaleH = 1.0f;
+    sagScaleW = 1.0f;
+    sagScaleH = 1.0f;
+  }
+
+  // Kavisli Yay Çizimi (B Özelliği): Hareket ederken dikey kavis
+  float solYayY = 0;
+  float sagYayY = 0;
+  if (gozState == STATE_SICRAMA) {
+    solYayY = -abs_f(((ortakhedefX + saccadeX) - (int)anlikGozAraligi) - solGoz.x) * 0.08f;
+    sagYayY = -abs_f(((ortakhedefX + saccadeX) + (int)anlikGozAraligi) - sagGoz.x) * 0.08f;
+    solYayY = constrain(solYayY, -4.0f, 0.0f);
+    sagYayY = constrain(sagYayY, -4.0f, 0.0f);
+  }
+
+  // Solunum Efekti: Göz sabit bakarken (STATE_ODAK) çok yavaş ve minik dikey dalgalanma (0.4px genlik) (sin yerine üçgen dalga)
+  float solunumY = 0;
+  if (gozState == STATE_ODAK) {
+    long t = millis() % 4188;
+    if (t < 2094) {
+      solunumY = -0.40f + (t * 0.000382f);
+    } else {
+      solunumY = 0.40f - ((t - 2094) * 0.000382f);
+    }
+  }
+
+  // Bell Fenomeni: Kırpma esnasında göz bebeklerini yukarı kaydıran koruyucu refleks
+  float solBellOffset = 0.0f;
+  float sagBellOffset = 0.0f;
+  if (kirpmaDurumu != 0) {
+    solBellOffset = - (1.0f - (solGoz.dikey / solGoz.kirpmaEskiDikey)) * 3.5f;
+    sagBellOffset = - (1.0f - (sagGoz.dikey / sagGoz.kirpmaEskiDikey)) * 3.5f;
+  }
+
+  // Jitter, mikro titreme, solunum, yay, Bell Fenomeni ve ocular flutter dahil edilmiş çizim koordinatları
+  int x1 = constrain((int)(solGoz.x + flutterAmp + jitterX + microTremorX - w1 / 2), 0, 127 - w1);
+  
+  int y1;
+  if (kirpmaDurumu != 0) {
+    y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY + solunumY + solBellOffset + (solGoz.kirpmaEskiDikey / 2.0f) - h1), 0,  63 - h1);
+  } else {
+    y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY + solunumY - h1 / 2), 0,  63 - h1);
+  }
+
+  int x2 = constrain((int)(sagGoz.x + flutterAmp + jitterX + microTremorX - w2 / 2), 0, 127 - w2);
+  
+  int y2;
+  if (kirpmaDurumu != 0) {
+    y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY + solunumY + sagBellOffset + (sagGoz.kirpmaEskiDikey / 2.0f) - h2), 0,  63 - h2);
+  } else {
+    y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY + solunumY - h2 / 2), 0,  63 - h2);
+  }
+
+  // Sol Göz Bebeği
+  if (h1 > 2 && w1 > 2) {
+    display.fillRoundRect(
+      x1, y1, w1, h1,
+      min(gozKoseYumusatma, min(w1 / 2, h1 / 2)),
+      SSD1306_WHITE
+    );
+  }
+
+  // Sağ Göz Bebeği
+  if (h2 > 2 && w2 > 2) {
+    display.fillRoundRect(
+      x2, y2, w2, h2,
+      min(gozKoseYumusatma, min(w2 / 2, h2 / 2)),
+      SSD1306_WHITE
+    );
+  }
+
+  // Kızgın Duygu için Kaş / Eğim Slicing (\ / Göz Yapısı)
+  if (mevcutDuygu == 3) {
+    // Sol göz için (\): Üst-sağ (iç) köşeyi kes (V1.8: Eğim yumuşatıldı)
+    int cutW1 = (int)(w1 * 0.60f);
+    int cutH1 = (int)(h1 * 0.40f);
+    display.fillTriangle(
+      x1 + w1 - cutW1, y1,
+      x1 + w1, y1,
+      x1 + w1, y1 + cutH1,
+      SSD1306_BLACK
+    );
+
+    // Sağ göz için (/): Üst-sol (iç) köşeyi kes (V1.8: Eğim yumuşatıldı)
+    int cutW2 = (int)(w2 * 0.60f);
+    int cutH2 = (int)(h2 * 0.40f);
+    display.fillTriangle(
+      x2, y2,
+      x2 + cutW2, y2,
+      x2, y2 + cutH2,
+      SSD1306_BLACK
+    );
+  }
+
+  // Asimetrik Göz Kapağı Kapanma Eğişimi: Burun tarafındaki üst köşeleri kırpma miktarınca keser
+  if (kirpmaDurumu != 0) {
+    float closeRatio1 = constrain(1.0f - (solGoz.dikey / solGoz.kirpmaEskiDikey), 0.0f, 1.0f);
+    int cutW1 = (int)(w1 * 0.50f * closeRatio1);
+    int cutH1 = (int)(h1 * 0.50f * closeRatio1);
+    if (cutW1 > 0 && cutH1 > 0) {
+      display.fillTriangle(
+        x1 + w1 - cutW1, y1,
+        x1 + w1, y1,
+        x1 + w1, y1 + cutH1,
+        SSD1306_BLACK
+      );
+    }
+
+    float closeRatio2 = constrain(1.0f - (sagGoz.dikey / sagGoz.kirpmaEskiDikey), 0.0f, 1.0f);
+    int cutW2 = (int)(w2 * 0.50f * closeRatio2);
+    int cutH2 = (int)(h2 * 0.50f * closeRatio2);
+    if (cutW2 > 0 && cutH2 > 0) {
+      display.fillTriangle(
+        x2, y2,
+        x2 + cutW2, y2,
+        x2, y2 + cutH2,
+        SSD1306_BLACK
+      );
+    }
+  }
+
+  display.display();
+}
+
+// =========================================================================
+// 12. ANA LOOP ÇAĞRISI
+// =========================================================================
+void loop() {
+  display.clearDisplay();
+
+  konumGuncelle();
+  hareketKontrol();
+  kirpmaGuncelle();
+  duyguKontrol();
+  ekraniCiz();
+}
