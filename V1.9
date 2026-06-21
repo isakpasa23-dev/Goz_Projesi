@@ -45,8 +45,8 @@ struct Goz {
 
 // Sol ve Sağ göz başlangıç durumları
 // {x, y, vx, vy, dikey, yatay, hedefDikey, hedefYatay, kirpmaEskiDikey}
-Goz solGoz = {32, 32, 0, 0, 32, 21, 32, 21, 32};
-Goz sagGoz = {96, 32, 0, 0, 32, 21, 32, 21, 32};
+Goz solGoz = {42, 32, 0, 0, 32, 21, 32, 21, 32};
+Goz sagGoz = {86, 32, 0, 0, 32, 21, 32, 21, 32};
 
 // =========================================================================
 // 4. GÖZ KIRPMA SİSTEMİ DEĞİŞKENLERİ
@@ -65,8 +65,8 @@ bool kisilarakHedefDegisiyor = false;   // Hareket sırasında göz kısılarak 
 // =========================================================================
 int ortakhedefX = 64;     // Gözlerin odaklandığı ortak X hedefi (ekran ortası varsayılan)
 int ortakhedefY = 32;     // Gözlerin odaklandığı ortak Y hedefi (ekran ortası varsayılan)
-int gozAraligi = 32;      // İki gözün merkezleri arasındaki hedef yatay mesafe
-float anlikGozAraligi = 32.0f; // Yumuşak geçiş için anlık göz aralığı
+int gozAraligi = 22;      // İki gözün merkezleri arasındaki hedef yatay mesafe
+float anlikGozAraligi = 22.0f; // Yumuşak geçiş için anlık göz aralığı
 byte mevcutDuygu = 0;     // 0: NORMAL, 1: KISMA, 2: ŞAŞKIN, 3: KIZGIN
 
 // Duygu geçişlerini yumuşatmak ve ani değişimleri engellemek için hafıza ağırlıkları
@@ -184,7 +184,7 @@ void gozHedefleriniGuncelle() {
       solGoz.hedefDikey = max(10.0, 32 + solRastgeleD + odakOffset);
       sagGoz.hedefYatay = max(10.0, 21 + sagRastgeleY + odakOffset);  
       sagGoz.hedefDikey = max(10.0, 32 + sagRastgeleD + odakOffset);
-      gozAraligi = random(24, 28); 
+      gozAraligi = random(20, 24); 
       break;
 
     case 1: // --- KISIK / YORGUN DUYGU ---
@@ -192,7 +192,7 @@ void gozHedefleriniGuncelle() {
       solGoz.hedefDikey = max(8.0, 16 + solRastgeleD + (odakOffset * 0.5f));
       sagGoz.hedefYatay = max(10.0, 21 + sagRastgeleY + (odakOffset * 0.5f));  
       sagGoz.hedefDikey = max(8.0, 16 + sagRastgeleD + (odakOffset * 0.5f));
-      gozAraligi = random(24, 28); 
+      gozAraligi = random(20, 24); 
       break;
 
     case 2: // --- ŞAŞKIN DUYGU ---
@@ -200,7 +200,7 @@ void gozHedefleriniGuncelle() {
       solGoz.hedefDikey = max(20.0, 42 + solRastgeleD + odakOffset);
       sagGoz.hedefYatay = max(15.0, 32 + sagRastgeleY + odakOffset);  
       sagGoz.hedefDikey = max(20.0, 42 + sagRastgeleD + odakOffset);
-      gozAraligi = random(30, 34); 
+      gozAraligi = random(26, 30); 
       break;
 
     case 3: // --- KIZGIN DUYGU ---
@@ -208,7 +208,7 @@ void gozHedefleriniGuncelle() {
       solGoz.hedefDikey = 22 + solRastgeleD; // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
       sagGoz.hedefYatay = 28 + sagRastgeleY;  
       sagGoz.hedefDikey = 22 + sagRastgeleD; // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
-      gozAraligi = random(19, 22); 
+      gozAraligi = random(16, 19); 
       break;
   }
 }
@@ -259,8 +259,8 @@ void showLogo() {
   display.println(F("PROJESI"));
   
   display.setTextSize(1);
-  display.setCursor(46, 47);
-  display.println(F("V1.9.0"));
+  display.setCursor(52, 47);
+  display.println(F("V1.9"));
   
   display.display();
 }
