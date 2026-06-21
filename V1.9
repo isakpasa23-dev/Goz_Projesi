@@ -178,36 +178,39 @@ void gozHedefleriniGuncelle() {
   float dist = sqrt(dx * dx + dy * dy);
   float odakOffset = (dist * 0.077778f) - 1.5f; // (dist / 45.0) * 3.5 hesaplamasının optimize edilmiş hali
 
+  // Kapak-Bebek Koordinasyonu: Göz yukarı bakınca kapaklar açılır, aşağı bakınca kısılır.
+  float bakisDikeyOffset = dy * -0.15f;
+
   switch (mevcutDuygu) {
     case 0: // --- NORMAL DUYGU ---
       solGoz.hedefYatay = max(10.0, 21 + solRastgeleY + odakOffset);  
-      solGoz.hedefDikey = max(10.0, 32 + solRastgeleD + odakOffset);
+      solGoz.hedefDikey = max(10.0, 32 + solRastgeleD + odakOffset + bakisDikeyOffset);
       sagGoz.hedefYatay = max(10.0, 21 + sagRastgeleY + odakOffset);  
-      sagGoz.hedefDikey = max(10.0, 32 + sagRastgeleD + odakOffset);
+      sagGoz.hedefDikey = max(10.0, 32 + sagRastgeleD + odakOffset + bakisDikeyOffset);
       gozAraligi = random(20, 24); 
       break;
 
     case 1: // --- KISIK / YORGUN DUYGU ---
       solGoz.hedefYatay = max(10.0, 21 + solRastgeleY + (odakOffset * 0.5f));  
-      solGoz.hedefDikey = max(8.0, 16 + solRastgeleD + (odakOffset * 0.5f));
+      solGoz.hedefDikey = max(8.0, 16 + solRastgeleD + (odakOffset * 0.5f) + (bakisDikeyOffset * 0.5f));
       sagGoz.hedefYatay = max(10.0, 21 + sagRastgeleY + (odakOffset * 0.5f));  
-      sagGoz.hedefDikey = max(8.0, 16 + sagRastgeleD + (odakOffset * 0.5f));
+      sagGoz.hedefDikey = max(8.0, 16 + sagRastgeleD + (odakOffset * 0.5f) + (bakisDikeyOffset * 0.5f));
       gozAraligi = random(20, 24); 
       break;
 
     case 2: // --- ŞAŞKIN DUYGU ---
       solGoz.hedefYatay = max(15.0, 32 + solRastgeleY + odakOffset);  
-      solGoz.hedefDikey = max(20.0, 42 + solRastgeleD + odakOffset);
+      solGoz.hedefDikey = max(20.0, 42 + solRastgeleD + odakOffset + bakisDikeyOffset);
       sagGoz.hedefYatay = max(15.0, 32 + sagRastgeleY + odakOffset);  
-      sagGoz.hedefDikey = max(20.0, 42 + sagRastgeleD + odakOffset);
+      sagGoz.hedefDikey = max(20.0, 42 + sagRastgeleD + odakOffset + bakisDikeyOffset);
       gozAraligi = random(26, 30); 
       break;
 
     case 3: // --- KIZGIN DUYGU ---
       solGoz.hedefYatay = 28 + solRastgeleY;  
-      solGoz.hedefDikey = 22 + solRastgeleD; // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
+      solGoz.hedefDikey = max(12.0, 22 + solRastgeleD + (bakisDikeyOffset * 0.5f)); // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
       sagGoz.hedefYatay = 28 + sagRastgeleY;  
-      sagGoz.hedefDikey = 22 + sagRastgeleD; // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
+      sagGoz.hedefDikey = max(12.0, 22 + sagRastgeleD + (bakisDikeyOffset * 0.5f)); // V1.8: Kızgın göz dikey boyutu kısıldı (28->22)
       gozAraligi = random(16, 19); 
       break;
   }
@@ -863,12 +866,18 @@ void ekraniCiz() {
     sagYayY = constrain(sagYayY, -4.0f, 0.0f);
   }
 
-  // Jitter, mikro titreme ve yay dahil edilmiş çizim koordinatları
+  // Solunum Efekti: Göz sabit bakarken (STATE_ODAK) çok yavaş ve minik dikey dalgalanma (0.4px genlik)
+  float solunumY = 0;
+  if (gozState == STATE_ODAK) {
+    solunumY = sin(millis() * 0.0015f) * 0.40f; 
+  }
+
+  // Jitter, mikro titreme, solunum ve yay dahil edilmiş çizim koordinatları
   int x1 = constrain((int)(solGoz.x + jitterX + microTremorX - w1 / 2), 0, 127 - w1);
-  int y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY - h1 / 2), 0,  63 - h1);
+  int y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY + solunumY - h1 / 2), 0,  63 - h1);
 
   int x2 = constrain((int)(sagGoz.x + jitterX + microTremorX - w2 / 2), 0, 127 - w2);
-  int y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY - h2 / 2), 0,  63 - h2);
+  int y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY + solunumY - h2 / 2), 0,  63 - h2);
 
   // Sol Göz Bebeği
   if (h1 > 2 && w1 > 2) {
