@@ -874,10 +874,22 @@ void ekraniCiz() {
 
   // Jitter, mikro titreme, solunum ve yay dahil edilmiş çizim koordinatları
   int x1 = constrain((int)(solGoz.x + jitterX + microTremorX - w1 / 2), 0, 127 - w1);
-  int y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY + solunumY - h1 / 2), 0,  63 - h1);
+  
+  int y1;
+  if (kirpmaDurumu != 0) {
+    y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY + solunumY + (solGoz.kirpmaEskiDikey / 2.0f) - h1), 0,  63 - h1);
+  } else {
+    y1 = constrain((int)(solGoz.y + solYayY + jitterY + microTremorY + solunumY - h1 / 2), 0,  63 - h1);
+  }
 
   int x2 = constrain((int)(sagGoz.x + jitterX + microTremorX - w2 / 2), 0, 127 - w2);
-  int y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY + solunumY - h2 / 2), 0,  63 - h2);
+  
+  int y2;
+  if (kirpmaDurumu != 0) {
+    y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY + solunumY + (sagGoz.kirpmaEskiDikey / 2.0f) - h2), 0,  63 - h2);
+  } else {
+    y2 = constrain((int)(sagGoz.y + sagYayY + jitterY + microTremorY + solunumY - h2 / 2), 0,  63 - h2);
+  }
 
   // Sol Göz Bebeği
   if (h1 > 2 && w1 > 2) {
